@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Turntable Frame Splitter</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+    canvas { border: 1px solid #ccc; max-width: 100%; }
+    label { display:block; margin: 8px 0; }
+    input[type="number"] { width: 96px; }
+    .status { white-space: pre-wrap; background:#f6f6f6; padding:10px; border-radius:6px; }
+    button { padding: 10px 14px; }
+  </style>
+</head>
+<body>
+  <h2>Turntable Frame Splitter（静的Web / PC向け）</h2>
+
+  <div class="row">
+    <div>
+      <label>動画ファイル（mp4推奨）:
+        <input id="file" type="file" accept="video/*" />
+      </label>
+
+      <label>出力枚数 N:
+        <input id="num" type="number" min="2" value="60" />
+      </label>
+
+      <label>解析解像度（長辺）:
+        <input id="longSide" type="number" min="160" value="480" />
+      </label>
+
+      <label>フレーム間引き（k=2なら2枚に1枚）:
+        <input id="stride" type="number" min="1" value="1" />
+      </label>
+
+      <label>グリッド間隔（大きいほど速い）:
+        <input id="grid" type="number" min="8" value="24" />
+      </label>
+
+      <label>中心付近除外半径（px, 解析解像度基準）:
+        <input id="minR" type="number" min="0" value="40" />
+      </label>
+
+      <button id="run" disabled>解析してZipでダウンロード</button>
+      <p>中心はキャンバスをクリックして指定（未指定なら画像中心）。</p>
+    </div>
+
+    <div>
+      <div>先頭フレーム（クリックで中心指定）</div>
+      <canvas id="preview" width="480" height="270"></canvas>
+      <div class="status" id="status">未ロード</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="./main.js"></script>
+</body>
+</html>
