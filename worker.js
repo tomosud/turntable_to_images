@@ -168,7 +168,12 @@ self.onmessage = async (ev) => {
     }
 
     postLog("フレーム選択完了。Zip生成に移ります…");
-    self.postMessage({ type: "result", selectedIdxs });
+    self.postMessage({
+      type: "result",
+      selectedIdxs,
+      omegas: Array.from(omegas),
+      omegasSmoothed: Array.from(omegasS),
+    });
 
   } catch (e) {
     self.postMessage({ type: "error", error: e?.message ?? String(e) });

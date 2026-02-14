@@ -5,6 +5,9 @@ const runEl = $("run");
 const statusEl = $("status");
 const canvas = $("preview");
 const ctx = canvas.getContext("2d");
+const graphContainer = $("graphContainer");
+const graphCanvas = $("graph");
+const graphCtx = graphCanvas.getContext("2d");
 
 const numEl = $("num");
 const longSideEl = $("longSide");
@@ -84,7 +87,7 @@ runEl.addEventListener("click", async () => {
 
     const worker = new Worker("./worker.js");
 
-    const selectedIdxs = await new Promise((resolve, reject) => {
+    const workerResult = await new Promise((resolve, reject) => {
       worker.onerror = (e) => {
         e.preventDefault();
         worker.terminate();
@@ -97,7 +100,7 @@ runEl.addEventListener("click", async () => {
           log(msg.text);
         } else if (msg.type === "result") {
           worker.terminate();
-          resolve(msg.selectedIdxs);
+          resolve(msg);
         } else if (msg.type === "error") {
           worker.terminate();
           reject(new Error(msg.error));
@@ -107,13 +110,17 @@ runEl.addEventListener("click", async () => {
       worker.postMessage({
         type: "run",
         w, h,
-        grayFrames: frames.gray, // Array<Uint8Array>
+        grayFrames: frames.gray,
         cx, cy,
         N,
         gridStep,
         minR,
       });
     });
+
+    const { selectedIdxs, omegas, omegasSmoothed } = workerResult;
+
+    drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs);
 
     log(`抽出フレーム選択完了。Zip生成中…（${selectedIdxs.length}枚）`);
 
@@ -137,11 +144,13 @@ runEl.addEventListener("click", async () => {
     const zipBlob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(zipBlob);
-    a.download = "frames.zip";
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    const zipName = baseName + "_frames.zip";
+    a.download = zipName;
     a.click();
     URL.revokeObjectURL(a.href);
 
-    log("完了。frames.zip をダウンロードしました。");
+    log(`完了。${zipName} をダウンロードしました。`);
   } catch (err) {
     console.error(err);
     log(`エラー: ${err.message}`);
@@ -264,4 +273,104 @@ function seeked(video, t) {
     video.addEventListener("error", onErr);
     video.currentTime = t;
   });
+}
+
+function drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs) {
+  graphContainer.style.display = "";
+
+  const W = graphCanvas.width;
+  const H = graphCanvas.height;
+  const pad = { top: 10, bottom: 20, left: 45, right: 10 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  graphCtx.clearRect(0, 0, W, H);
+
+  const allVals = omegas.concat(omegasSmoothed);
+  let minV = Math.min(...allVals);
+  let maxV = Math.max(...allVals);
+  if (maxV - minV < 1e-9) { minV -= 0.01; maxV += 0.01; }
+  const margin = (maxV - minV) * 0.05;
+  minV -= margin;
+  maxV += margin;
+
+  const n = omegas.length;
+  const xOf = (i) => pad.left + (i / (n - 1)) * plotW;
+  const yOf = (v) => pad.top + plotH - ((v - minV) / (maxV - minV)) * plotH;
+
+  // axes
+  graphCtx.strokeStyle = "#999";
+  graphCtx.lineWidth = 1;
+  graphCtx.beginPath();
+  graphCtx.moveTo(pad.left, pad.top);
+  graphCtx.lineTo(pad.left, H - pad.bottom);
+  graphCtx.lineTo(W - pad.right, H - pad.bottom);
+  graphCtx.stroke();
+
+  // y-axis labels
+  graphCtx.fillStyle = "#666";
+  graphCtx.font = "10px system-ui";
+  graphCtx.textAlign = "right";
+  graphCtx.textBaseline = "middle";
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = minV + (maxV - minV) * (i / yTicks);
+    const y = yOf(v);
+    graphCtx.fillText(v.toFixed(3), pad.left - 4, y);
+    graphCtx.strokeStyle = "#e0e0e0";
+    graphCtx.beginPath();
+    graphCtx.moveTo(pad.left, y);
+    graphCtx.lineTo(W - pad.right, y);
+    graphCtx.stroke();
+  }
+
+  // x-axis label
+  graphCtx.fillStyle = "#666";
+  graphCtx.textAlign = "center";
+  graphCtx.textBaseline = "top";
+  graphCtx.fillText("frame", W / 2, H - pad.bottom + 6);
+
+  // selected frame markers
+  graphCtx.fillStyle = "rgba(0, 120, 255, 0.08)";
+  for (const idx of selectedIdxs) {
+    const x = xOf(idx);
+    graphCtx.fillRect(x - 1, pad.top, 2, plotH);
+  }
+
+  // raw omegas (thin, light)
+  graphCtx.strokeStyle = "rgba(200, 200, 200, 0.7)";
+  graphCtx.lineWidth = 1;
+  graphCtx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = xOf(i), y = yOf(omegas[i]);
+    i === 0 ? graphCtx.moveTo(x, y) : graphCtx.lineTo(x, y);
+  }
+  graphCtx.stroke();
+
+  // smoothed omegas (bold, blue)
+  graphCtx.strokeStyle = "#2060c0";
+  graphCtx.lineWidth = 2;
+  graphCtx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = xOf(i), y = yOf(omegasSmoothed[i]);
+    i === 0 ? graphCtx.moveTo(x, y) : graphCtx.lineTo(x, y);
+  }
+  graphCtx.stroke();
+
+  // legend
+  graphCtx.lineWidth = 1;
+  const lx = pad.left + 8;
+  const ly = pad.top + 6;
+  graphCtx.strokeStyle = "rgba(200,200,200,0.7)";
+  graphCtx.beginPath(); graphCtx.moveTo(lx, ly + 4); graphCtx.lineTo(lx + 20, ly + 4); graphCtx.stroke();
+  graphCtx.fillStyle = "#999";
+  graphCtx.textAlign = "left";
+  graphCtx.textBaseline = "middle";
+  graphCtx.fillText("raw", lx + 24, ly + 4);
+
+  graphCtx.strokeStyle = "#2060c0";
+  graphCtx.lineWidth = 2;
+  graphCtx.beginPath(); graphCtx.moveTo(lx, ly + 18); graphCtx.lineTo(lx + 20, ly + 18); graphCtx.stroke();
+  graphCtx.fillStyle = "#2060c0";
+  graphCtx.fillText("smoothed", lx + 24, ly + 18);
 }

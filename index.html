@@ -15,7 +15,9 @@
   </style>
 </head>
 <body>
-  <h2>Turntable Frame Splitter（静的Web / PC向け）</h2>
+  <h2>Turntable Frame Splitter</h2>
+  <p>ターンテーブル1周分の動画から、回転角度が均等になるようにフレームを抽出するツールです。<br>
+  光学フローで回転速度を推定し、加減速のある動画でも角度基準で等間隔に分割します。</p>
 
   <div class="row">
     <div>
@@ -24,7 +26,7 @@
       </label>
 
       <label>出力枚数 N:
-        <input id="num" type="number" min="2" value="60" />
+        <input id="num" type="number" min="2" value="12" />
       </label>
 
       <label>解析解像度（長辺）:
@@ -51,6 +53,10 @@
       <div>先頭フレーム（クリックで中心指定）</div>
       <canvas id="preview" width="480" height="270"></canvas>
       <div class="status" id="status">未ロード</div>
+      <div id="graphContainer" style="display:none; margin-top:12px;">
+        <div>角速度 ω（rad/frame）</div>
+        <canvas id="graph" width="480" height="180"></canvas>
+      </div>
     </div>
   </div>
 
