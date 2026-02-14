@@ -61,6 +61,22 @@
     </div>
   </div>
 
+  <div id="debugContainer" style="display:none; margin-top:16px;">
+    <h3>Debug: Optical Flow</h3>
+    <div style="display:flex; gap:12px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+      <label>Frame: <input id="debugSlider" type="range" min="1" max="1" value="1" style="width:300px;" />
+        <span id="debugFrameLabel">1</span>
+      </label>
+      <label><input id="debugShowGrid" type="checkbox" checked /> Grid</label>
+      <label><input id="debugShowFlow" type="checkbox" checked /> Flow</label>
+      <label><input id="debugShowSpeed" type="checkbox" checked /> Speed color</label>
+      <label>Arrow scale: <input id="debugArrowScale" type="range" min="1" max="20" value="5" style="width:100px;" />
+        <span id="debugArrowScaleLabel">5</span>
+      </label>
+    </div>
+    <canvas id="debugCanvas" width="480" height="270" style="background:#000;"></canvas>
+  </div>
+
   <div id="thumbsContainer" style="display:none; margin-top:16px;">
     <h3>抽出フレーム</h3>
     <div id="thumbs"></div>

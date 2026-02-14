@@ -39,13 +39,27 @@ async function loadOpenCV() {
 }
 
 function median(arr) {
-  // arr: Float64Array or Array<number>
   const a = Array.from(arr);
   a.sort((x, y) => x - y);
   const n = a.length;
   if (n === 0) return 0;
   const mid = n >> 1;
   return (n % 2) ? a[mid] : (a[mid - 1] + a[mid]) * 0.5;
+}
+
+function trimmedMean(arr, trimRatio) {
+  // 上下 trimRatio 分を捨てて平均
+  const a = Array.from(arr);
+  a.sort((x, y) => x - y);
+  const n = a.length;
+  if (n === 0) return 0;
+  const cut = Math.floor(n * trimRatio);
+  let sum = 0, cnt = 0;
+  for (let i = cut; i < n - cut; i++) {
+    sum += a[i];
+    cnt++;
+  }
+  return cnt > 0 ? sum / cnt : 0;
 }
 
 self.onmessage = async (ev) => {
@@ -76,6 +90,10 @@ self.onmessage = async (ev) => {
     const omegas = new Float64Array(frameCount);
     omegas[0] = 0.0;
 
+    // デバッグ用: フレームごとの各グリッド点フローデータ
+    // debugFlows[i] = { fx[], fy[], omega[] } (i=0 は空)
+    const debugFlows = [];
+
     // 事前にグリッド点を作る
     const pts = [];
     for (let y = Math.floor(gridStep / 2); y < h; y += gridStep) {
@@ -102,19 +120,26 @@ self.onmessage = async (ev) => {
 
       // flow.data32F: [fx,fy, fx,fy, ...]
       const data = flow.data32F;
-      const samples = [];
+      const dfx = new Float32Array(pts.length);
+      const dfy = new Float32Array(pts.length);
+      const domega = new Float32Array(pts.length);
 
-      for (const p of pts) {
+      for (let pi = 0; pi < pts.length; pi++) {
+        const p = pts[pi];
         const idx = (p.y * w + p.x) * 2;
         const fx = data[idx];
         const fy = data[idx + 1];
         const vt = fx * p.tx + fy * p.ty;  // 接線方向成分
         const omega = vt / p.r;            // rad/frame 近似
-        samples.push(omega);
+        dfx[pi] = fx;
+        dfy[pi] = fy;
+        domega[pi] = omega;
       }
 
-      // 中央値で頑健に
-      omegas[i] = median(samples);
+      // トリム平均: 上下10%の外れ値を除外して平均
+      // 視差による異常値（高さのある具材など）を除去しつつ安定した推定
+      omegas[i] = trimmedMean(domega, 0.1);
+      debugFlows.push({ fx: dfx, fy: dfy, omega: domega });
 
       prev.delete();
       prev = cur;
@@ -167,12 +192,16 @@ self.onmessage = async (ev) => {
       selectedIdxs.push(bestI);
     }
 
+    // デバッグ用グリッド点座標（UIで描画用）
+    const gridPts = pts.map(p => ({ x: p.x, y: p.y, r: p.r, tx: p.tx, ty: p.ty }));
+
     postLog("フレーム選択完了。Zip生成に移ります…");
     self.postMessage({
       type: "result",
       selectedIdxs,
       omegas: Array.from(omegas),
       omegasSmoothed: Array.from(omegasS),
+      debug: { gridPts, flows: debugFlows },
     });
 
   } catch (e) {

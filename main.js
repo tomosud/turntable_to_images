@@ -15,6 +15,12 @@ const strideEl = $("stride");
 const gridEl = $("grid");
 const minREl = $("minR");
 
+// Debug state
+let debugState = null; // { w, h, rgbaFrames, gridPts, flows, medianOmegas }
+
+// Graph state (for redraw with cursor)
+let graphState = null; // { omegas, omegasSmoothed, selectedIdxs }
+
 function log(msg) {
   statusEl.textContent = msg;
 }
@@ -87,10 +93,15 @@ runEl.addEventListener("click", async () => {
       });
     });
 
-    const { selectedIdxs, omegas, omegasSmoothed } = workerResult;
+    const { selectedIdxs, omegas, omegasSmoothed, debug } = workerResult;
 
     drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs);
     drawThumbnails(selectedIdxs, frames.rgba, w, h);
+
+    // デバッグ可視化を初期化
+    if (debug) {
+      initDebugView(w, h, frames.rgba, debug.gridPts, debug.flows, omegas, selectedIdxs);
+    }
 
     log(`抽出フレーム選択完了。Zip生成中…（${selectedIdxs.length}枚）`);
 
@@ -245,7 +256,8 @@ function seeked(video, t) {
   });
 }
 
-function drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs) {
+function drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs, cursorFrame) {
+  graphState = { omegas, omegasSmoothed, selectedIdxs };
   graphContainer.style.display = "";
 
   const W = graphCanvas.width;
@@ -338,6 +350,29 @@ function drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs) {
   }
   graphCtx.stroke();
 
+  // debug cursor line (green, bold)
+  if (cursorFrame != null && cursorFrame >= 0 && cursorFrame < n) {
+    const cx = xOf(cursorFrame);
+    graphCtx.strokeStyle = "rgba(0, 220, 80, 0.8)";
+    graphCtx.lineWidth = 2;
+    graphCtx.beginPath();
+    graphCtx.moveTo(cx, pad.top);
+    graphCtx.lineTo(cx, pad.top + plotH);
+    graphCtx.stroke();
+    // frame label
+    graphCtx.fillStyle = "rgba(0, 220, 80, 0.9)";
+    graphCtx.font = "10px system-ui";
+    graphCtx.textAlign = "center";
+    graphCtx.textBaseline = "bottom";
+    graphCtx.fillText(`F${cursorFrame}`, cx, pad.top - 1);
+    // omega value dot
+    const vy = yOf(omegasSmoothed[cursorFrame]);
+    graphCtx.fillStyle = "rgba(0, 220, 80, 0.9)";
+    graphCtx.beginPath();
+    graphCtx.arc(cx, vy, 3, 0, Math.PI * 2);
+    graphCtx.fill();
+  }
+
   // legend
   graphCtx.lineWidth = 1;
   const lx = pad.left + 8;
@@ -373,6 +408,8 @@ function drawThumbnails(selectedIdxs, rgbaFrames, w, h) {
     c.width = thumbW;
     c.height = thumbH;
     c.title = `#${k} (frame ${idx})`;
+    c.dataset.frameIdx = idx;
+    c.style.transition = "outline 0.1s";
 
     const tctx = c.getContext("2d");
     // draw full-size to offscreen, then scale down
@@ -384,4 +421,216 @@ function drawThumbnails(selectedIdxs, rgbaFrames, w, h) {
 
     thumbsEl.appendChild(c);
   }
+}
+
+// ---- Debug Visualization ----
+
+function initDebugView(w, h, rgbaFrames, gridPts, flows, medianOmegas, selectedIdxs) {
+  const container = $("debugContainer");
+  container.style.display = "";
+
+  const dbgCanvas = $("debugCanvas");
+  dbgCanvas.width = w;
+  dbgCanvas.height = h;
+
+  const slider = $("debugSlider");
+  const frameLabel = $("debugFrameLabel");
+  const arrowScaleSlider = $("debugArrowScale");
+  const arrowScaleLabel = $("debugArrowScaleLabel");
+
+  // flows配列はフレーム1～N-1に対応 (index 0 = frame 1)
+  const maxFrame = flows.length; // = frameCount - 1
+  slider.min = 1;
+  slider.max = maxFrame;
+  slider.value = 1;
+  frameLabel.textContent = "1";
+
+  debugState = { w, h, rgbaFrames, gridPts, flows, medianOmegas, selectedIdxs };
+
+  const redraw = () => {
+    drawDebugFrame();
+    // グラフ上にもカーソル表示
+    if (graphState) {
+      const { omegas, omegasSmoothed, selectedIdxs } = graphState;
+      drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs, Number(slider.value));
+    }
+    // サムネイルハイライト
+    highlightThumbnail(Number(slider.value));
+  };
+
+  slider.addEventListener("input", () => {
+    frameLabel.textContent = slider.value;
+    redraw();
+  });
+  arrowScaleSlider.addEventListener("input", () => {
+    arrowScaleLabel.textContent = arrowScaleSlider.value;
+    redraw();
+  });
+  $("debugShowGrid").addEventListener("change", redraw);
+  $("debugShowFlow").addEventListener("change", redraw);
+  $("debugShowSpeed").addEventListener("change", redraw);
+
+  redraw();
+}
+
+function drawDebugFrame() {
+  if (!debugState) return;
+  const { w, h, rgbaFrames, gridPts, flows, medianOmegas } = debugState;
+
+  const dbgCanvas = $("debugCanvas");
+  const dctx = dbgCanvas.getContext("2d");
+  const frameIdx = Number($("debugSlider").value); // 1-based (flows[0] = frame 1)
+  const flowIdx = frameIdx - 1;
+  const arrowScale = Number($("debugArrowScale").value);
+  const showGrid = $("debugShowGrid").checked;
+  const showFlow = $("debugShowFlow").checked;
+  const showSpeed = $("debugShowSpeed").checked;
+
+  // 背景: 該当フレームの映像を半透明で描画
+  const tmp = document.createElement("canvas");
+  tmp.width = w; tmp.height = h;
+  tmp.getContext("2d").putImageData(rgbaFrames[frameIdx], 0, 0);
+  dctx.clearRect(0, 0, w, h);
+  dctx.globalAlpha = 0.4;
+  dctx.drawImage(tmp, 0, 0);
+  dctx.globalAlpha = 1.0;
+
+  const flow = flows[flowIdx];
+  if (!flow) return;
+
+  const medianOmega = medianOmegas[frameIdx];
+
+  // omega の範囲を計算（色分け用）
+  let minOmega = Infinity, maxOmega = -Infinity;
+  for (let i = 0; i < flow.omega.length; i++) {
+    const o = flow.omega[i];
+    if (o < minOmega) minOmega = o;
+    if (o > maxOmega) maxOmega = o;
+  }
+
+  for (let i = 0; i < gridPts.length; i++) {
+    const pt = gridPts[i];
+    const fx = flow.fx[i];
+    const fy = flow.fy[i];
+    const omega = flow.omega[i];
+
+    // 速度色分け: 中央値からの乖離度で色付け
+    // 中央値に近い = 緑, 乖離 = 赤
+    const deviation = Math.abs(omega - medianOmega);
+    const maxDev = Math.max(Math.abs(maxOmega - medianOmega), Math.abs(minOmega - medianOmega), 1e-9);
+    const devRatio = Math.min(deviation / maxDev, 1.0);
+
+    if (showSpeed) {
+      // 背景にドットの速度ヒートマップ
+      const r = Math.round(255 * devRatio);
+      const g = Math.round(255 * (1 - devRatio));
+      dctx.fillStyle = `rgba(${r}, ${g}, 60, 0.5)`;
+      dctx.beginPath();
+      dctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+      dctx.fill();
+    }
+
+    if (showGrid) {
+      // グリッド点を小さい白い点で表示
+      dctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      dctx.beginPath();
+      dctx.arc(pt.x, pt.y, 1.5, 0, Math.PI * 2);
+      dctx.fill();
+    }
+
+    if (showFlow) {
+      // フロー矢印を描画
+      const endX = pt.x + fx * arrowScale;
+      const endY = pt.y + fy * arrowScale;
+
+      // 矢印の色: 中央値に近い=シアン、乖離=マゼンタ
+      const cr = Math.round(200 * devRatio + 50);
+      const cg = Math.round(200 * (1 - devRatio));
+      const cb = Math.round(200);
+      dctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, 0.7)`;
+      dctx.lineWidth = 1;
+
+      // 線
+      dctx.beginPath();
+      dctx.moveTo(pt.x, pt.y);
+      dctx.lineTo(endX, endY);
+      dctx.stroke();
+
+      // 矢じり
+      const mag = Math.hypot(fx, fy) * arrowScale;
+      if (mag > 2) {
+        const angle = Math.atan2(fy, fx);
+        const headLen = Math.min(mag * 0.35, 5);
+        dctx.beginPath();
+        dctx.moveTo(endX, endY);
+        dctx.lineTo(
+          endX - headLen * Math.cos(angle - 0.5),
+          endY - headLen * Math.sin(angle - 0.5)
+        );
+        dctx.moveTo(endX, endY);
+        dctx.lineTo(
+          endX - headLen * Math.cos(angle + 0.5),
+          endY - headLen * Math.sin(angle + 0.5)
+        );
+        dctx.stroke();
+      }
+    }
+  }
+
+  // 中心点の表示
+  const cx = w / 2, cy = h / 2;
+  dctx.strokeStyle = "rgba(255, 255, 0, 0.6)";
+  dctx.lineWidth = 1;
+  dctx.beginPath();
+  dctx.arc(cx, cy, Number(minREl.value), 0, Math.PI * 2);
+  dctx.stroke();
+  // 十字
+  dctx.beginPath();
+  dctx.moveTo(cx - 8, cy); dctx.lineTo(cx + 8, cy);
+  dctx.moveTo(cx, cy - 8); dctx.lineTo(cx, cy + 8);
+  dctx.stroke();
+
+  // 情報テキスト
+  dctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  dctx.font = "11px monospace";
+  dctx.textAlign = "left";
+  dctx.textBaseline = "top";
+  dctx.fillText(`Frame ${frameIdx}  |  median \u03c9 = ${medianOmega.toFixed(5)} rad/f  |  pts = ${gridPts.length}`, 4, 4);
+
+  // 凡例
+  dctx.fillStyle = "rgba(0, 255, 80, 0.8)";
+  dctx.fillRect(4, 20, 8, 8);
+  dctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  dctx.fillText("= near median", 16, 19);
+
+  dctx.fillStyle = "rgba(255, 0, 60, 0.8)";
+  dctx.fillRect(4, 33, 8, 8);
+  dctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+  dctx.fillText("= outlier (deviation from median)", 16, 32);
+}
+
+function highlightThumbnail(cursorFrame) {
+  if (!debugState) return;
+  const { selectedIdxs } = debugState;
+  const thumbs = $("thumbs").querySelectorAll("canvas");
+
+  // カーソルが属する区間の抽出フレームを探す
+  // selectedIdxs[k] <= cursorFrame < selectedIdxs[k+1] なら k をハイライト
+  let matchK = 0;
+  for (let k = 0; k < selectedIdxs.length; k++) {
+    if (selectedIdxs[k] <= cursorFrame) {
+      matchK = k;
+    }
+  }
+
+  thumbs.forEach((c, k) => {
+    if (k === matchK) {
+      c.style.outline = "3px solid #00dc50";
+      c.style.outlineOffset = "1px";
+      c.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    } else {
+      c.style.outline = "";
+      c.style.outlineOffset = "";
+    }
+  });
 }
