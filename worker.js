@@ -192,6 +192,26 @@ self.onmessage = async (ev) => {
       selectedIdxs.push(bestI);
     }
 
+    // スパイク回避: モーションブラーの大きいフレームを避ける
+    // スパイク = 1フレームで隣接フレームより大きく動いている
+    for (let k = 0; k < selectedIdxs.length; k++) {
+      const idx = selectedIdxs[k];
+      if (idx <= 0 || idx >= frameCount - 1) continue;
+      const cur  = Math.abs(omegas[idx]);
+      const prev = Math.abs(omegas[idx - 1]);
+      const next = Math.abs(omegas[idx + 1]);
+      const neighborAvg = (prev + next) / 2;
+      if (neighborAvg > 1e-9 && cur / neighborAvg > 1.5) {
+        // 1フレームずらす（ターゲット角度に近い方向へ）
+        const t = targets[k];
+        const dPrev = Math.abs(theta[idx - 1] - t);
+        const dNext = Math.abs(theta[idx + 1] - t);
+        const newIdx = dPrev <= dNext ? idx - 1 : idx + 1;
+        postLog(`スパイク回避: frame ${idx} → ${newIdx} (cur/neighbor=${(cur/neighborAvg).toFixed(2)})`);
+        selectedIdxs[k] = newIdx;
+      }
+    }
+
     // デバッグ用グリッド点座標（UIで描画用）
     const gridPts = pts.map(p => ({ x: p.x, y: p.y, r: p.r, tx: p.tx, ty: p.ty }));
 
