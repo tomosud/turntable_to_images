@@ -8,7 +8,7 @@
 
 ## 使い方
 
-1. `run.bat` をダブルクリック（ブラウザが自動で開きます）
+1. https://tomosud.github.io/turntable_to_images/
 2. 動画ファイル（mp4推奨）を選択
 3. 必要に応じてパラメータを調整
 4. 「解析してZipでダウンロード」をクリック
