@@ -15,50 +15,20 @@ const strideEl = $("stride");
 const gridEl = $("grid");
 const minREl = $("minR");
 
-let center = null; // {x,y} in preview canvas coords (analysis resolution)
-let cleanPreviewImageData = null;
-
 function log(msg) {
   statusEl.textContent = msg;
 }
-
-function drawCross(x, y) {
-  ctx.save();
-  ctx.strokeStyle = "red";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(x - 10, y);
-  ctx.lineTo(x + 10, y);
-  ctx.moveTo(x, y - 10);
-  ctx.lineTo(x, y + 10);
-  ctx.stroke();
-  ctx.restore();
-}
-
-canvas.addEventListener("click", (e) => {
-  if (!cleanPreviewImageData) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-  const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-  center = { x, y };
-  ctx.putImageData(cleanPreviewImageData, 0, 0);
-  drawCross(x, y);
-  log(`中心指定: (${x.toFixed(1)}, ${y.toFixed(1)})`);
-});
 
 fileEl.addEventListener("change", async () => {
   if (!fileEl.files?.length) return;
   runEl.disabled = false;
   log("動画を読み込みます…");
-  // 先頭フレームを表示するために軽くキャプチャ
   const file = fileEl.files[0];
   const { firstFrameImageData, w, h } = await captureFirstFrame(file, Number(longSideEl.value));
   canvas.width = w;
   canvas.height = h;
   ctx.putImageData(firstFrameImageData, 0, 0);
-  cleanPreviewImageData = firstFrameImageData;
-  center = null;
-  log(`ロード完了。解析解像度: ${w}x${h}。キャンバスをクリックで中心指定。`);
+  log(`ロード完了。解析解像度: ${w}x${h}`);
 });
 
 runEl.addEventListener("click", async () => {
@@ -79,9 +49,8 @@ runEl.addEventListener("click", async () => {
     });
 
     const w = frames.w, h = frames.h;
-    // 中心未指定なら画面中心
-    const cx = center ? center.x : w / 2;
-    const cy = center ? center.y : h / 2;
+    const cx = w / 2;
+    const cy = h / 2;
 
     log(`解析開始… frames=${frames.gray.length} / ${w}x${h}\nOpenCV.jsをWorkerでロードします…`);
 
@@ -121,6 +90,7 @@ runEl.addEventListener("click", async () => {
     const { selectedIdxs, omegas, omegasSmoothed } = workerResult;
 
     drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs);
+    drawThumbnails(selectedIdxs, frames.rgba, w, h);
 
     log(`抽出フレーム選択完了。Zip生成中…（${selectedIdxs.length}枚）`);
 
@@ -331,10 +301,21 @@ function drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs) {
   graphCtx.fillText("frame", W / 2, H - pad.bottom + 6);
 
   // selected frame markers
-  graphCtx.fillStyle = "rgba(0, 120, 255, 0.08)";
-  for (const idx of selectedIdxs) {
+  for (let k = 0; k < selectedIdxs.length; k++) {
+    const idx = selectedIdxs[k];
     const x = xOf(idx);
-    graphCtx.fillRect(x - 1, pad.top, 2, plotH);
+    graphCtx.strokeStyle = "rgba(255, 80, 80, 0.45)";
+    graphCtx.lineWidth = 1;
+    graphCtx.beginPath();
+    graphCtx.moveTo(x, pad.top);
+    graphCtx.lineTo(x, pad.top + plotH);
+    graphCtx.stroke();
+    // frame number label at bottom
+    graphCtx.fillStyle = "rgba(255, 80, 80, 0.6)";
+    graphCtx.font = "8px system-ui";
+    graphCtx.textAlign = "center";
+    graphCtx.textBaseline = "bottom";
+    graphCtx.fillText(String(k), x, pad.top + plotH - 2);
   }
 
   // raw omegas (thin, light)
@@ -373,4 +354,34 @@ function drawOmegaGraph(omegas, omegasSmoothed, selectedIdxs) {
   graphCtx.beginPath(); graphCtx.moveTo(lx, ly + 18); graphCtx.lineTo(lx + 20, ly + 18); graphCtx.stroke();
   graphCtx.fillStyle = "#2060c0";
   graphCtx.fillText("smoothed", lx + 24, ly + 18);
+}
+
+function drawThumbnails(selectedIdxs, rgbaFrames, w, h) {
+  const container = $("thumbsContainer");
+  const thumbsEl = $("thumbs");
+  container.style.display = "";
+  thumbsEl.innerHTML = "";
+
+  const thumbH = 80;
+  const thumbW = Math.round((w / h) * thumbH);
+
+  for (let k = 0; k < selectedIdxs.length; k++) {
+    const idx = selectedIdxs[k];
+    const imgData = rgbaFrames[idx];
+
+    const c = document.createElement("canvas");
+    c.width = thumbW;
+    c.height = thumbH;
+    c.title = `#${k} (frame ${idx})`;
+
+    const tctx = c.getContext("2d");
+    // draw full-size to offscreen, then scale down
+    const tmp = document.createElement("canvas");
+    tmp.width = w;
+    tmp.height = h;
+    tmp.getContext("2d").putImageData(imgData, 0, 0);
+    tctx.drawImage(tmp, 0, 0, thumbW, thumbH);
+
+    thumbsEl.appendChild(c);
+  }
 }

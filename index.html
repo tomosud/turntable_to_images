@@ -12,6 +12,8 @@
     input[type="number"] { width: 96px; }
     .status { white-space: pre-wrap; background:#f6f6f6; padding:10px; border-radius:6px; }
     button { padding: 10px 14px; }
+    #thumbs { display:flex; flex-wrap:wrap; gap:4px; margin-top:12px; }
+    #thumbs canvas { border:1px solid #ddd; }
   </style>
 </head>
 <body>
@@ -46,11 +48,10 @@
       </label>
 
       <button id="run" disabled>解析してZipでダウンロード</button>
-      <p>中心はキャンバスをクリックして指定（未指定なら画像中心）。</p>
     </div>
 
     <div>
-      <div>先頭フレーム（クリックで中心指定）</div>
+      <div>先頭フレーム</div>
       <canvas id="preview" width="480" height="270"></canvas>
       <div class="status" id="status">未ロード</div>
       <div id="graphContainer" style="display:none; margin-top:12px;">
@@ -58,6 +59,11 @@
         <canvas id="graph" width="480" height="180"></canvas>
       </div>
     </div>
+  </div>
+
+  <div id="thumbsContainer" style="display:none; margin-top:16px;">
+    <h3>抽出フレーム</h3>
+    <div id="thumbs"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
