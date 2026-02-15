@@ -103,23 +103,20 @@ runEl.addEventListener("click", async () => {
       initDebugView(w, h, frames.rgba, debug.gridPts, debug.flows, omegas, selectedIdxs);
     }
 
-    log(`抽出フレーム選択完了。Zip生成中…（${selectedIdxs.length}枚）`);
+    log(`抽出フレーム選択完了。元解像度でフレームを再取得中…（${selectedIdxs.length}枚）`);
 
-    // Zip化（解析解像度の画像をそのまま出力：最短ルート）
+    // 選択されたフレームのタイムスタンプを集めて元解像度でキャプチャ
+    const selectedTimestamps = selectedIdxs.map((idx) => frames.timestamps[idx]);
+    const fullRes = await captureFullResFrames(file, selectedTimestamps, (done, total) => {
+      log(`元解像度フレーム取得中… ${done}/${total}`);
+    });
+
+    log(`Zip生成中…（${selectedIdxs.length}枚, ${fullRes.ow}x${fullRes.oh}）`);
     const zip = new JSZip();
-    const outCanvas = document.createElement("canvas");
-    outCanvas.width = w;
-    outCanvas.height = h;
-    const outCtx = outCanvas.getContext("2d");
 
-    for (let k = 0; k < selectedIdxs.length; k++) {
-      const idx = selectedIdxs[k];
-      const imgData = frames.rgba[idx];
-      outCtx.putImageData(imgData, 0, 0);
-
-      const blob = await new Promise((res) => outCanvas.toBlob(res, "image/png"));
-      zip.file(`${String(k).padStart(4, "0")}.png`, blob);
-      if (k % 10 === 0) log(`Zip生成中… ${k}/${selectedIdxs.length}`);
+    for (let k = 0; k < fullRes.blobs.length; k++) {
+      zip.file(`${String(k).padStart(4, "0")}.png`, fullRes.blobs[k]);
+      if (k % 10 === 0) log(`Zip生成中… ${k}/${fullRes.blobs.length}`);
     }
 
     const zipBlob = await zip.generateAsync({ type: "blob" });
@@ -183,6 +180,7 @@ async function captureFramesFromVideo(file, longSide, stride, onProgress) {
 
   const gray = [];
   const rgba = [];
+  const timestamps = [];
 
   let frameCount = 0;
   let kept = 0;
@@ -201,6 +199,7 @@ async function captureFramesFromVideo(file, longSide, stride, onProgress) {
       cctx.drawImage(video, 0, 0, w, h);
       const img = cctx.getImageData(0, 0, w, h);
       rgba.push(img);
+      timestamps.push(video.currentTime);
 
       // グレースケール化（OpenCV側に渡す用）
       const g = new Uint8Array(w * h);
@@ -227,7 +226,36 @@ async function captureFramesFromVideo(file, longSide, stride, onProgress) {
   await done;
 
   URL.revokeObjectURL(video.src);
-  return { w, h, gray, rgba };
+  return { w, h, gray, rgba, timestamps };
+}
+
+async function captureFullResFrames(file, timestamps, onProgress) {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.src = URL.createObjectURL(file);
+
+  await videoLoaded(video);
+
+  const ow = video.videoWidth;
+  const oh = video.videoHeight;
+  const c = document.createElement("canvas");
+  c.width = ow;
+  c.height = oh;
+  const cctx = c.getContext("2d", { willReadFrequently: true });
+
+  const blobs = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    await seeked(video, timestamps[i]);
+    cctx.drawImage(video, 0, 0, ow, oh);
+    const blob = await new Promise((res) => c.toBlob(res, "image/png"));
+    blobs.push(blob);
+    if (onProgress) onProgress(i + 1, timestamps.length);
+  }
+
+  URL.revokeObjectURL(video.src);
+  return { ow, oh, blobs };
 }
 
 function fitToLongSide(w, h, longSide) {
