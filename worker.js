@@ -12,7 +12,7 @@ async function loadOpenCV() {
 
   postLog("OpenCV.js 読み込み中…");
   try {
-    importScripts("https://docs.opencv.org/4.x/opencv.js");
+    importScripts("./opencv.js");
   } catch (e) {
     throw new Error(
       "OpenCV.js の CDN 読み込みに失敗しました。" +
